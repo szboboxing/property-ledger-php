@@ -2262,7 +2262,14 @@ RENDER.settings = async function(){
       '</div><button class="btn" id="savePass">修改密码</button>' +
     '</div>' +
     '<div class="section glass card">' +
-      '<div class="sec-head"><h3>💾 数据备份与恢复</h3><span class="hint">数据保存在服务器数据库，建议定期导出备份</span></div>' +
+      '<div class="sec-head"><h3>💾 数据备份与恢复</h3><span class="hint">数据保存在服务器 MySQL，建议定期导出备份</span></div>' +
+      '<div style="font-size:12.5px;line-height:1.75;color:var(--muted);background:rgba(217,181,125,.05);border:1px dashed var(--line2);border-radius:10px;padding:10px 12px;margin-bottom:12px">' +
+        '<div style="color:var(--text);font-weight:600;margin-bottom:4px">📖 备份说明（两种方式，推荐第一种）</div>' +
+        '<b style="color:var(--text)">① 页面导出 JSON（推荐，最简单）</b>：点「一键备份 / 导出 JSON」，服务器把 MySQL 里的物业、房间、租客、租约、账单、杂费、收款、经验、账号和全部设置打包，下载一个「物业管理台账备份-日期.json」。纯业务数据、不含数据库密码；该格式与 HTML 单文件版<b>完全互通</b>，两边可互相导入。<br>' +
+        '<b style="color:var(--text)">② 整库灾备（可选）</b>：也可在主机控制面板（如 cPanel → phpMyAdmin）把整个 MySQL 库导出为 .sql，或用 mysqldump 命令备份，适合服务器故障 / 误删整库时恢复。<br>' +
+        '<b style="color:var(--text)">🔁 换主机 / 迁移流程</b>：旧站点「导出 JSON」→ 新主机上传本程序 5 个文件并跑完网页安装向导 → 登录新站点「从备份恢复」选择该 JSON，数据、账号、收款码全部还原，<b>全程不用手动搬数据库</b>。<br>' +
+        '<b style="color:var(--text)">⚠️ 恢复注意</b>：导入会先清空再整体覆盖当前数据（数据库事务保护，中途失败自动回滚，不会出现半份数据）；备份 JSON 含登录密码哈希，请像钥匙一样妥善保管，建议存到网盘或 U 盘。' +
+      '</div>' +
       '<div id="qbStats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;font-size:12px"></div>' +
       '<div id="qbStatus" style="font-size:13px;margin-bottom:12px"></div>' +
       '<button class="btn ok" id="quickBackup" style="width:100%;padding:14px;font-size:16px;font-weight:600">🚀 一键备份</button> ' +
