@@ -1,7 +1,7 @@
 # 物业管理台账 PHP 版 · Apache 安全配置（infinityfree htdocs 生效）
 
-# 禁止直接访问配置 / 建表脚本 / 说明文件
-<FilesMatch "^(config\.php|schema\.sql|README\.md)$">
+# 禁止直接访问敏感文件：配置 / 建表脚本 / 安装向导 / 临时备份 / 说明
+<FilesMatch "^(config\.php|schema\.sql|setup\.php|backup\.php|_backup_.*\.sql|README\.md)$">
   Require all denied
 </FilesMatch>
 

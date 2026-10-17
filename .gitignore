@@ -1,6 +1,9 @@
 # 真实配置（含数据库密码）由安装向导生成，禁止提交
 /config.php
 
+# 主机凭据备份（含敏感信息），禁止提交
+/InfinityFree主机信息.html
+
 # 系统与编辑器
 Thumbs.db
 .DS_Store
