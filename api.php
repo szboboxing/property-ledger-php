@@ -10,9 +10,77 @@
    密码：password_hash()/password_verify()（bcrypt）；
         兼容 HTML 版备份的 pbkdf2$/sha256js$ 旧格式，登录校验成功后自动升级为 bcrypt。
    ============================================================ */
+
+/* ---------- 运行时安全自检 ---------- */
+$REQ_PHP_MIN = '8.2.35'; // PHP2Shell 最低安全版
+$PHP_VER = PHP_VERSION;
+$security_alerts = [];
+if (version_compare($PHP_VER, $REQ_PHP_MIN, '<')) {
+  $security_alerts[] = "PHP 版本 {$PHP_VER} 低于安全基线 {$REQ_PHP_MIN}，受 CVE-2026-109618/109619 (PHP2Shell CVSS 9.2) 影响，请联系主机商升级";
+}
+if (file_exists(__DIR__ . '/setup.php') && file_exists(__DIR__ . '/config.php')) {
+  $security_alerts[] = "setup.php 安装向导仍存在于服务器，请用 FTP 删除；.htaccess 虽有拦截但不能替代物理删除";
+}
+
+/* ---------- 生产环境错误处理：屏蔽敏感堆栈 ---------- */
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+set_error_handler(function($severity, $message, $file, $line){
+  // 写 error log 但不回显给客户端
+  error_log("[property-ledger-php] severity=$severity msg=$message file=$file line=$line");
+});
+set_exception_handler(function($e){
+  error_log("[property-ledger-php] UNCAUGHT: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
+  http_response_code(500);
+  header('Content-Type: application/json; charset=utf-8');
+  echo json_encode(['ok'=>false,'error'=>'服务器内部错误，请稍后重试或联系管理员']);
+  exit;
+});
+
+/* ---------- 安全响应头（双重保险，.htaccess 可能被绕过） ---------- */
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('X-Permitted-Cross-Domain-Policies: none');
+if ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] ?? '') === '443') {
+  header('Strict-Transport-Security: max-age=63072000; includeSubDomains');
+}
+
+/* ---------- HTTP 方法白名单 ---------- */
+if (!in_array(($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['GET','POST','OPTIONS'], true)) {
+  http_response_code(405);
+  header('Allow: GET, POST, OPTIONS');
+  echo json_encode(['ok'=>false,'error'=>'方法不被允许']);
+  exit;
+}
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+  header('Access-Control-Max-Age: 86400');
+  http_response_code(204); exit;
+}
+
 require __DIR__ . '/config.php';
 pl_session_start();
 header('Content-Type: application/json; charset=utf-8');
+
+/* ---------- 请求体大小限制（防 DoS） ---------- */
+$MAX_INPUT = 8 * 1024 * 1024;
+if (($_SERVER['CONTENT_LENGTH'] ?? 0) > $MAX_INPUT) {
+  http_response_code(413);
+  echo json_encode(['ok'=>false,'error'=>'请求体过大']);
+  exit;
+}
+
+/* ---------- 登录限流：按客户端 IP 每 60s 最多 10 次失败 ---------- */
+function rate_limit_check($ip){
+  if (!isset($_SESSION['login_fails'])) $_SESSION['login_fails'] = ['ip'=>$ip, 'count'=>0, 'first'=>time()];
+  $lf = &$_SESSION['login_fails'];
+  if ($lf['ip'] !== $ip){ $lf = ['ip'=>$ip, 'count'=>0, 'first'=>time()]; return true; }
+  if (time() - $lf['first'] > 600){ $lf = ['ip'=>$ip, 'count'=>0, 'first'=>time()]; return true; }
+  return $lf['count'] < 10;
+}
+function rate_limit_incr(){ $_SESSION['login_fails']['count']++; }
+function rate_limit_clear(){ $_SESSION['login_fails'] = ['ip'=>$_SERVER['REMOTE_ADDR']??'', 'count'=>0, 'first'=>time()]; }
 
 function out($data = null){ echo json_encode(['ok'=>true,'data'=>$data], JSON_UNESCAPED_UNICODE); exit; }
 function fail($msg){ echo json_encode(['ok'=>false,'error'=>$msg], JSON_UNESCAPED_UNICODE); exit; }
@@ -243,11 +311,14 @@ try {
     case 'login': {
       $u = trim((string)($in['userName'] ?? '')); $p = (string)($in['password'] ?? '');
       if ($u === '' || $p === '') fail('请输入登录名和密码。');
+      $clientIp = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+      if (!rate_limit_check($clientIp)) fail('登录尝试过于频繁，请稍后再试。');
       $st = db()->prepare('SELECT * FROM users WHERE LOWER(userName) = LOWER(?) LIMIT 1');
       $st->execute([$u]);
       $row = $st->fetch(PDO::FETCH_ASSOC);
-      if (!$row || !(int)$row['isActive']) fail('账号不存在或已停用。');
-      if (!verify_password($p, $row['passwordHash'])) fail('密码错误，请重试。');
+      if (!$row || !(int)$row['isActive']) { rate_limit_incr(); fail('账号不存在或已停用。'); }
+      if (!verify_password($p, $row['passwordHash'])) { rate_limit_incr(); fail('密码错误，请重试。'); }
+      rate_limit_clear();
       if (is_legacy_hash($row['passwordHash'])){   /* 旧 PBKDF2 哈希自动升级为 bcrypt */
         db()->prepare('UPDATE users SET passwordHash = ? WHERE id = ?')
             ->execute([password_hash($p, PASSWORD_DEFAULT), (int)$row['id']]);
@@ -410,7 +481,10 @@ try {
       fail('未知操作：' . $action);
   }
 } catch (PDOException $e){
-  fail('数据库错误：' . $e->getMessage());
-} catch (Exception $e){
-  fail('服务器错误：' . $e->getMessage());
+  // 不泄露 SQL / 表结构信息给客户端，真实细节已在 error_log
+  error_log("[property-ledger-php] PDOException: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+  fail('数据库暂时不可用，请稍后重试。');
+} catch (Throwable $e){
+  error_log("[property-ledger-php] Throwable: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+  fail('服务器内部错误，请稍后重试。');
 }
