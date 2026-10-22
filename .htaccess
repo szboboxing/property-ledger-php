@@ -1,16 +1,77 @@
 # 物业管理台账 PHP 版 · Apache 安全配置（infinityfree htdocs 生效）
+# infinityfree 前端是 openresty（反爬 JS 挑战），后端 Apache 会读取本 .htaccess
 
-# 禁止直接访问敏感文件：配置 / 建表脚本 / 安装向导 / 临时备份 / 说明
-<FilesMatch "^(config\.php|schema\.sql|setup\.php|backup\.php|_backup_.*\.sql|README\.md)$">
+# ========== 1. 禁止直接访问敏感文件 ==========
+<FilesMatch "(?i)^(config\.php|schema\.sql|setup\.php|install\.php|backup\.php|_backup_.*\.sql|config\.sample\.php|\.env|composer\.json|composer\.lock|README\.md|LICENSE)$">
   Require all denied
 </FilesMatch>
 
-# 禁止目录列表
+# 禁止所有 .sql / .bak / .old / .tmp / .log 文件被下载
+<FilesMatch "(?i)\.(sql|bak|old|tmp|log|orig|save)$">
+  Require all denied
+</FilesMatch>
+
+# 禁止点开头的隐藏文件被访问（.git / .htpasswd / .DS_Store 等）
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+# ========== 2. 禁止目录列表 ==========
 Options -Indexes
 
-# 基础安全响应头
+# ========== 3. 禁止在脚本目录执行 PHP ==========
+# 如果未来增加 uploads 目录可以用下面这组规则，先注释占位：
+# <IfModule mod_php.c>
+#   <FilesMatch "\.(php|phtml|php3|php4|php5|phar)$">
+#     php_flag engine off
+#   </FilesMatch>
+# </IfModule>
+
+# ========== 4. 安全响应头 ==========
 <IfModule mod_headers.c>
-  Header set X-Content-Type-Options "nosniff"
-  Header set X-Frame-Options "SAMEORIGIN"
-  Header set Referrer-Policy "same-origin"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Permitted-Cross-Domain-Policies "none"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+  # HSTS：infinityfree 支持 HTTPS，开启严格传输；max-age=63072000=2年，includeSubDomains 避免子域 cookie 泄露
+  Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains" env=HTTPS
+</IfModule>
+
+# ========== 5. 隐藏服务器信息 ==========
+ServerTokens Prod
+ServerSignature Off
+
+# ========== 6. 禁用危险 HTTP 方法 ==========
+<LimitExcept GET POST HEAD OPTIONS>
+  Require all denied
+</LimitExcept>
+
+# ========== 7. PHP 运行时安全设置 ==========
+<IfModule mod_php.c>
+  # 关闭 display_errors（生产环境）
+  php_flag display_errors Off
+  php_flag display_startup_errors Off
+  # 关闭 allow_url_include 防远程文件包含
+  php_flag allow_url_include Off
+  php_flag allow_url_fopen On
+  # 关闭 register_globals（PHP 5 时代已移除，保险起见）
+  php_flag register_globals Off
+  # 限制 POST 大小防 DoS
+  php_value post_max_size 8M
+  php_value upload_max_filesize 5M
+  # session cookie 强制 secure
+  php_flag session.cookie_secure On env=HTTPS
+  php_flag session.cookie_httponly On
+  php_value session.cookie_samesite "Lax"
+  # 关闭 expose_php 隐藏 X-Powered-By
+  php_flag expose_php Off
+  # 限制 URL 查询串最大长度
+  php_value max_input_vars 2000
+</IfModule>
+
+# ========== 8. 旧 IE 浏览器升级建议 ==========
+<IfModule mod_setenvif.c>
+  BrowserMatch "MSIE" msie
 </IfModule>
