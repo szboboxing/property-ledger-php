@@ -44,15 +44,17 @@ function page($title, $body, $ok = true){
   exit;
 }
 
-/* ---------- 已安装锁定：防止误访问导致清库 ---------- */
-if ($LOCKED && !isset($_POST['force_confirm'])){
-  page('系统已安装',
-    '<div class="ok">检测到 <span class="code">config.php</span> 已存在，物业管理台账已经安装完成。</div>'
-    . '<p class="sub">为保护现有数据，安装向导已锁定。<br>'
-    . '如需<b>全新重装</b>（会清空全部数据），请先用 FTP 删除服务器上的 '
-    . '<span class="code">config.php</span>，再重新访问本页。</p>'
-    . '<p class="sub">建议现在删除 <span class="code">setup.php</span> 以关闭安装入口。</p>'
-    . '<a class="btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="index.php">前往登录页</a>');
+/* ---------- 已安装锁定：硬拒绝，无任何输出 ---------- */
+/* 安全策略：config.php 存在即视为已安装，直接 403 拒绝，不回显任何 HTML。
+   这是比"提示锁定"更严格的防线——即使 .htaccess 被绕过也无法利用。
+   真要重装：先用 FTP 删 config.php + setup.php 两个文件，再上传新版 setup.php。 */
+if ($LOCKED){
+  http_response_code(403);
+  header('Content-Type: text/plain');
+  header('X-Robots-Tag: noindex,nofollow');
+  header('Cache-Control: no-store');
+  echo 'Installation already completed.';
+  exit;
 }
 
 /* ---------- 安装执行 ---------- */
